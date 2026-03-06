@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Sword Duel - Skill Edition</title>
+<style>
+  html,body{
+    margin:0;background:#0b0f14;color:#e5e7eb;
+    font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;
+    overscroll-behavior:none;
+  }
+  .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;}
+  canvas{
+    background:#111827;border:2px solid #334155;border-radius:14px;
+    width:min(1100px,96vw);height:auto;touch-action:none;display:block;
+  }
+  .hud{
+    width:min(1100px,96vw);display:flex;flex-wrap:wrap;gap:10px;
+    align-items:center;justify-content:space-between;
+  }
+  .pill{
+    padding:6px 10px;border:1px solid #334155;border-radius:999px;
+    background:#0b1220;font-size:13px;color:#cbd5e1;
+  }
+  .bars{width:min(1100px,96vw);display:flex;gap:10px;flex-wrap:wrap;}
+  .col{flex:1;min-width:320px;display:flex;flex-direction:column;gap:6px;}
+  .bar{background:#0b1220;border:1px solid #334155;border-radius:999px;overflow:hidden;height:14px;}
+  .fill{height:100%;width:100%;background:linear-gradient(90deg,#22c55e,#84cc16);}
+  .fill.ai{background:linear-gradient(90deg,#38bdf8,#a78bfa);}
+  .help{width:min(1100px,96vw);color:#9ca3af;font-size:13px;line-height:1.5;}
+
+  .overlay{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.55); backdrop-filter: blur(6px); z-index:20;
+  }
+  .panel{
+    width:min(560px, 92vw);
+    background:#0b1220; border:1px solid #334155; border-radius:16px;
+    padding:18px; box-shadow:0 20px 80px rgba(0,0,0,0.45);
+  }
+  .panel h2{margin:0 0 10px 0; font-size:18px;}
+  .panel p{margin:0 0 14px 0; color:#cbd5e1; font-size:13px; line-height:1.5;}
+  .btnrow{display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;}
+  button{
+    cursor:pointer; border:1px solid #334155; background:#111827; color:#e5e7eb;
+    border-radius:12px; padding:10px 14px; font-weight:800;
+  }
+  button:hover{background:#0a1426;}
+
+  .controls{
+    position:fixed; left:0; right:0; bottom:12px; display:flex; justify-content:space-between;
+    padding:0 14px; z-index:10; pointer-events:none;
+  }
+  .pad{display:flex; gap:10px; pointer-events:auto;}
+  .btn{
+    width:64px; height:64px; border-radius:16px; display:flex; align-items:center; justify-content:center;
+    background:rgba(17,24,39,0.88); border:1px solid rgba(51,65,85,1);
+    color:#e5e7eb; font-weight:900; font-size:18px; user-select:none;
+    -webkit-user-select:none; touch-action:none;
+  }
+  .btn.wide{width:84px;}
+  .btn.skill{
+    width:94px;
+    background:rgba(55,48,163,0.95);
+    border-color:#6366f1;
+  }
+  .btn:active{transform:scale(0.98);}
+
+  .credit{
+    position:fixed;
+    right:12px;
+    bottom:10px;
+    z-index:11;
+    font-size:11px;
+    color:#94a3b8;
+    opacity:0.85;
+    pointer-events:none;
+  }
+
+  @media (min-width: 980px){
+    .controls{display:none;}
+  }
+  @media (max-width: 979px){
+    .credit{bottom:92px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hud">
+    <div class="pill">레벨: <span id="level">1</span></div>
+    <div class="pill">배경: <span id="bgName">은하 전장</span></div>
+    <div class="pill">AI 지능: <span id="aiMult">1.00</span>x</div>
+    <div class="pill">남은시간: <span id="time">60.0</span>s</div>
+    <div class="pill">E 스킬 쿨: <span id="skillCd">0.0</span>s</div>
+    <div class="pill">R 스킬 쿨: <span id="rSkillCd">0.0</span>s</div>
+    <div class="pill" id="status">대기중</div>
+  </div>
+
+  <div class="bars">
+    <div class="col">
+      <div class="pill">플레이어 HP: <span id="pHP">100</span></div>
+      <div class="bar"><div class="fill" id="pBar"></div></div>
+    </div>
+    <div class="col">
+      <div class="pill">로봇 HP: <span id="aHP">100</span></div>
+      <div class="bar"><div class="fill ai" id="aBar"></div></div>
+    </div>
+  </div>
+
+  <div class="help">
+    키보드: A/D 이동 · Space 점프 · 좌클릭 공격 · E 스킬(휘몰아치는 칼날) · R 스킬(순간참)<br/>
+    모바일: 하단 버튼(← → 점프 공격 E스킬 R스킬)<br/>
+    기본 공격: 공중 -10 / 지상 -5 · 플레이어 점프 중 AI 공격 무시<br/>
+    E 스킬: AI 위치로 회전 돌진 후 적중 시 -30 · 쿨타임 10초 · 플레이어만 사용 가능<br/>
+    R 스킬: AI 바로 앞으로 순간이동 → 공격 → 적중 시 -40 → 원래 위치 복귀 · 쿨타임 20초<br/>
+    AI: 이동속도는 모든 레벨 동일 · 레벨마다 지능만 10%씩 증가 · 레벨30 보스만 R스킬 사용 가능<br/>
+    보스 레벨(30): AI HP 150 · 보스 공격 시 플레이어 추가 피해 5% · 보스 격파 시 플레이어 공격력 +5%, 3초마다 HP +10 회복
+  </div>
+
+  <canvas id="c" width="1100" height="520"></canvas>
+</div>
+
+<div class="controls">
+  <div class="pad">
+    <div class="btn" id="btnLeft">←</div>
+    <div class="btn" id="btnRight">→</div>
+  </div>
+  <div class="pad">
+    <div class="btn wide" id="btnJump">점프</div>
+    <div class="btn wide" id="btnAtk">공격</div>
+    <div class="btn skill" id="btnSkill">E스킬</div>
+    <div class="btn skill" id="btnRSkill">R스킬</div>
+  </div>
+</div>
+
+<div class="credit">Made by 강민제(2026)</div>
+
+<div class="overlay" id="overlay">
+  <div class="panel">
+    <h2>칼싸움 게임</h2>
+    <p>
+      Start를 누르면 시작!<br/>
+      - 기본 공격: 지상 -5 / 공중 -10<br/>
+      - E 스킬: AI 방향으로 회전 돌진, 적중 시 -30, 쿨타임 10초<br/>
+      - R 스킬: AI 앞까지 순간이동 후 참격, 적중 시 -40, 바로 원위치 복귀, 쿨타임 20초<br/>
+      - AI는 레벨마다 빨라지지 않음, 대신 지능만 상승<br/>
+      - 레벨30은 보스 레벨: HP 150, AI도 R 스킬 사용<br/>
+      - 레벨30 승리 보상: 플레이어 공격력 +5%, 3초마다 HP 10 회복
+    </p>
+    <div class="btnrow">
+      <button id="btnStart">Start</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const c = document.getElementById("c");
+  const ctx = c.getContext("2d");
+
+  const elLevel = document.getElementById("level");
+  const elBgName = document.getElementById("bgName");
+  const elAiMult = document.getElementById("aiMult");
+  const elTime = document.getElementById("time");
+  const elStatus = document.getElementById("status");
+  const elPHP = document.getElementById("pHP");
+  const elAHP = document.getElementById("aHP");
+  const elPBar = document.getElementById("pBar");
+  const elABar = document.getElementById("aBar");
+  const elSkillCd = document.getElementById("skillCd");
+  const elRSkillCd = document.getElementById("rSkillCd");
+
+  const overlay = document.getElementById("overlay");
+  const btnStart = document.getElementById("btnStart");
+
+  const W = c.width, H = c.height;
+  const GROUND = H - 106;
+
+  const BASE_DMG_GROUND = 5;
+  const BASE_DMG_AIR = 10;
+  const DMG_SKILL = 30;
+  const DMG_RSKILL = 40;
+  const ROUND_TIME = 60.0;
+
+  const JUMP_MULT = 1.2;
+  const PLAYER_INVULN_IN_AIR = true;
+
+  const HARD_MIN_GAP = 92;
+  const HIT_THICKNESS = 11.0;
+
+  const BLADE_LEN = 90;
+  const TRAIL_R = 92;
+  const STEP_IN_SPEED = 210;
+
+  const SKILL_COOLDOWN = 10.0;
+  const SKILL_DURATION = 0.42;
+  const SKILL_SPEED = 920;
+
+  const RSKILL_COOLDOWN = 20.0;
+  const RSKILL_DURATION = 0.28;
+
+  const AI_MOVE_SPEED_MULT = 1.0;      // 다시 100%
+  const AI_SWING_SLOW_FACTOR = 1.80;   // 이전 요청 유지
+
+  const BOSS_LEVEL = 30;
+  const BOSS_HP_MULT = 1.5;
+  const BOSS_EXTRA_DAMAGE = 1.05;
+  const BOSS_REWARD_DAMAGE_MULT = 1.05;
+  const REGEN_INTERVAL = 3.0;
+  const REGEN_AMOUNT = 10;
+
+  const STORM_LEVEL = 6;
+  const STORM_TOTAL = 20;
+  const STAR_STUN = 0.5;
+
+  const THEMES = [
+    "은하 전장",
+    "심해 도시",
+    "고대 숲",
+    "빙하 협곡",
+    "황혼 성곽",
+    "화산 지대",
+    "사막 유적",
+    "네온 도시"
+  ];
+  let theme = THEMES[0];
+
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp = (a,b,t)=>a+(b-a)*t;
+  const mirrorAroundPi = (angle)=>Math.PI-angle;
+  const isBossLevel = ()=> level === BOSS_LEVEL;
+
+  const input = { left:false, right:false, jumpEdge:false, atkEdge:false, skillEdge:false, rSkillEdge:false };
+
+  addEventListener("keydown", (e) => {
+    if (e.code === "KeyA") input.left = true;
+    if (e.code === "KeyD") input.right = true;
+    if (e.code === "Space") input.jumpEdge = true;
+    if (e.code === "KeyE") input.skillEdge = true;
+    if (e.code === "KeyR") input.rSkillEdge = true;
+    if (["KeyA","KeyD","Space","KeyE","KeyR"].includes(e.code)) e.preventDefault();
+  }, {passive:false});
+
+  addEventListener("keyup", (e) => {
+    if (e.code === "KeyA") input.left = false;
+    if (e.code === "KeyD") input.right = false;
+  });
+
+  c.addEventListener("mousedown", (e) => { if (e.button === 0) input.atkEdge = true; });
+
+  function bindHold(id, down, up){
+    const el = document.getElementById(id);
+    const d = (ev)=>{ ev.preventDefault(); down(); };
+    const u = (ev)=>{ ev.preventDefault(); up(); };
+    el.addEventListener("pointerdown", d, {passive:false});
+    el.addEventListener("pointerup", u, {passive:false});
+    el.addEventListener("pointercancel", u, {passive:false});
+    el.addEventListener("pointerleave", u, {passive:false});
+  }
+
+  bindHold("btnLeft", ()=>input.left=true, ()=>input.left=false);
+  bindHold("btnRight", ()=>input.right=true, ()=>input.right=false);
+  bindHold("btnJump", ()=>{ input.jumpEdge=true; }, ()=>{});
+  bindHold("btnAtk", ()=>{ input.atkEdge=true; }, ()=>{});
+  bindHold("btnSkill", ()=>{ input.skillEdge=true; }, ()=>{});
+  bindHold("btnRSkill", ()=>{ input.rSkillEdge=true; }, ()=>{});
+
+  function makeFighter(kind, x, speed){
+    return {
+      kind,
+      x, y:GROUND, w:60, h:92,
+      vx:0, vy:0,
+      baseSpeed:speed,
+      airControl:0.78,
+      jumpVel:1080*JUMP_MULT,
+      onGround:true,
+      hp:100,
+      maxHp:100,
+      facing:(kind==="ai") ? -1 : 1,
+
+      cooldown:0,
+      swing:0, swingDur:0, swingT:0,
+      swingType:"ground",
+      attackStyle:"slash",
+      hitThisSwing:false,
+
+      hitFlash:0,
+      stun:0,
+
+      think:0,
+      state:"space",
+      feintT:0,
+
+      skillCd:0,
+      skill:0,
+      skillDur:0,
+      skillT:0,
+      skillHit:false,
+      spin:0,
+
+      rSkillCd:0,
+      rSkill:0,
+      rSkillDur:0,
+      rSkillT:0,
+      rSkillHit:false,
+      rReturnPending:false,
+      returnX:0,
+      returnY:0,
+      teleported:false
+    };
+  }
+
+  const player = makeFighter("player", 290, 490);
+  const ai = makeFighter("ai", 860, 420);
+
+  const floatTexts = [];
+  function spawnFloat(text, x = W/2, y = 135, color = "#fbbf24"){
+    floatTexts.push({text, x, y, t:0.75, vy:-34, a:1, color});
+  }
+  function updateFloatTexts(dt){
+    for (let i=floatTexts.length-1;i>=0;i--){
+      const t = floatTexts[i];
+      t.t -= dt;
+      t.y += t.vy*dt;
+      t.a = clamp(t.t/0.75, 0, 1);
+      if (t.t <= 0) floatTexts.splice(i,1);
+    }
+  }
+
+  const stars = [];
+  let stormActive=false, stormTimeLeft=0, stormStarsLeft=0, stormNextSpawn=0;
+
+  let started=false, running=false;
+  let level=1;
+  let timeLeft=ROUND_TIME;
+  let hitStop=0;
+
+  let playerDamageBonus = 1.0;
+  let playerRegenEnabled = false;
+  let playerRegenTimer = REGEN_INTERVAL;
+
+  function pickThemeByLevel(){
+    theme = THEMES[(level - 1) % THEMES.length];
+    elBgName.textContent = theme + (isBossLevel() ? " · 보스" : "");
+  }
+
+  function getPlayerDamageMult(){
+    return playerDamageBonus;
+  }
+
+  function getAiIntelMult(){
+    return Math.pow(1.1, level-1);
+  }
+
+  function updateHUD(){
+    elLevel.textContent = String(level);
+    elAiMult.textContent = getAiIntelMult().toFixed(2);
+    elTime.textContent = timeLeft.toFixed(1);
+    elPHP.textContent = String(Math.round(player.hp));
+    elAHP.textContent = String(Math.round(ai.hp));
+    elPBar.style.width = ((player.hp / player.maxHp) * 100) + "%";
+    elABar.style.width = ((ai.hp / ai.maxHp) * 100) + "%";
+    elSkillCd.textContent = Math.max(0, player.skillCd).toFixed(1);
+    elRSkillCd.textContent = Math.max(0, player.rSkillCd).toFixed(1);
+  }
+
+  function startStormIfNeeded(){
+    if (level < STORM_LEVEL){
+      stormActive=false;
+      stars.length=0;
+      stormTimeLeft=0;
+      stormStarsLeft=0;
+      stormNextSpawn=0;
+      return;
+    }
+    stormActive=true;
+    stormTimeLeft=60.0;
+    stormStarsLeft=STORM_TOTAL;
+    stormNextSpawn=0.25;
+    stars.length=0;
+  }
+
+  function spawnStormStar(){
+    const x = 80 + Math.random()*(W-160);
+    const r = 10 + Math.random()*10;
+    const vy = 260 + Math.random()*260;
+    let vx = 0;
+    if (Math.random() >= 0.5){
+      const side = Math.random()<0.5 ? -1 : 1;
+      vx = side * vy * (0.25 + Math.random()*0.35);
+    }
+    stars.push({x, y:-30, r, vx, vy, rot: Math.random()*Math.PI*2});
+  }
+
+  function rectCircleOverlap(rect, cx, cy, r){
+    const closestX = clamp(cx, rect.x, rect.x+rect.w);
+    const closestY = clamp(cy, rect.y, rect.y+rect.h);
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    return (dx*dx + dy*dy) <= r*r;
+  }
+
+  function updateStorm(dt){
+    if (!stormActive) return;
+
+    stormTimeLeft = Math.max(0, stormTimeLeft - dt);
+    stormNextSpawn -= dt;
+
+    if (stormStarsLeft > 0 && stormNextSpawn <= 0){
+      spawnStormStar();
+      stormStarsLeft -= 1;
+      const avg = (stormStarsLeft > 0) ? (stormTimeLeft / stormStarsLeft) : 999;
+      stormNextSpawn = clamp(avg, 1.8, 4.0);
+    }
+
+    const pRect = {x:player.x, y:player.y, w:player.w, h:player.h};
+    const aRect = {x:ai.x, y:ai.y, w:ai.w, h:ai.h};
+
+    for (let i=stars.length-1;i>=0;i--){
+      const s = stars[i];
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.rot += dt * 3.5;
+      if (s.x < 20 || s.x > W-20) s.vx *= -0.8;
+
+      if (rectCircleOverlap(pRect, s.x, s.y, s.r)){
+        player.stun = Math.max(player.stun, STAR_STUN);
+        stars.splice(i,1);
+        continue;
+      }
+      if (rectCircleOverlap(aRect, s.x, s.y, s.r)){
+        ai.stun = Math.max(ai.stun, STAR_STUN);
+        stars.splice(i,1);
+        continue;
+      }
+      if (s.y > H + 60) stars.splice(i,1);
+    }
+
+    if (stormTimeLeft <= 0 && stormStarsLeft <= 0){
+      stormActive=false;
+      stars.length=0;
+    }
+  }
+
+  function resetRound(){
+    timeLeft = ROUND_TIME;
+    hitStop = 0;
+
+    pickThemeByLevel();
+    startStormIfNeeded();
+
+    player.maxHp = 100;
+    ai.maxHp = isBossLevel() ? 150 : 100;
+
+    player.hp = player.maxHp;
+    ai.hp = ai.maxHp;
+
+    player.x=290; ai.x=860;
+    player.y=ai.y=GROUND;
+    player.vx=ai.vx=0;
+    player.vy=ai.vy=0;
+    player.onGround=ai.onGround=true;
+    player.facing=1; ai.facing=-1;
+
+    for (const f of [player, ai]){
+      f.cooldown=0;
+      f.swing=0;
+      f.swingDur=0;
+      f.swingT=0;
+      f.hitThisSwing=false;
+      f.hitFlash=0;
+      f.attackStyle="slash";
+      f.stun=0;
+      f.think=0;
+      f.state="space";
+      f.feintT=0;
+
+      f.skill=0;
+      f.skillDur=0;
+      f.skillT=0;
+      f.skillHit=false;
+      f.spin=0;
+
+      f.rSkill=0;
+      f.rSkillDur=0;
+      f.rSkillT=0;
+      f.rSkillHit=false;
+      f.rReturnPending=false;
+      f.returnX=0;
+      f.returnY=0;
+      f.teleported=false;
+    }
+
+    player.skillCd = 0;
+    player.rSkillCd = 0;
+    ai.skillCd = 9999;
+    ai.rSkillCd = isBossLevel() ? 0 : 9999;
+
+    floatTexts.length=0;
+    elStatus.textContent = isBossLevel() ? "보스전!" : "진행중";
+
+    if (playerRegenEnabled) playerRegenTimer = REGEN_INTERVAL;
+
+    updateHUD();
+  }
+
+  btnStart.onclick = () => {
+    overlay.style.display = "none";
+    started = true;
+    running = true;
+    level = 1;
+    playerDamageBonus = 1.0;
+    playerRegenEnabled = false;
+    playerRegenTimer = REGEN_INTERVAL;
+    resetRound();
+  };
+
+  function enforceNoPass(){
+    if (player.rSkill > 0 || ai.rSkill > 0) return;
+
+    const dx = (ai.x + ai.w/2) - (player.x + player.w/2);
+    const adx = Math.abs(dx);
+    if (adx < HARD_MIN_GAP){
+      const push = (HARD_MIN_GAP - adx)/2;
+      if (dx > 0) { player.x -= push; ai.x += push; }
+      else { player.x += push; ai.x -= push; }
+      player.x = clamp(player.x, 14, W-14-player.w);
+      ai.x = clamp(ai.x, 14, W-14-ai.w);
+    }
+  }
+
+  function tryAttack(f, style){
+    if (f.stun > 0) return false;
+    if (f.skill > 0 || f.rSkill > 0) return false;
+    if (f.cooldown > 0 || f.swing > 0) return false;
+
+    f.swingType = f.onGround ? "ground" : "air";
+    f.attackStyle = style || "slash";
+
+    const isThrust = (f.attackStyle === "thrust") && (f.swingType === "ground");
+    let swing = isThrust ? 0.18 : (f.swingType === "air" ? 0.28 : 0.22);
+    let cd    = isThrust ? 0.32 : (f.swingType === "air" ? 0.46 : 0.36);
+
+    if (f === ai){
+      swing *= AI_SWING_SLOW_FACTOR;
+      cd *= AI_SWING_SLOW_FACTOR;
+    }
+
+    f.swingDur = swing;
+    f.swing = swing;
+    f.cooldown = cd;
+    f.hitThisSwing = false;
+    return true;
+  }
+
+  function trySkill(f){
+    if (f !== player) return false;
+    if (f.stun > 0) return false;
+    if (f.skillCd > 0) return false;
+    if (f.skill > 0 || f.swing > 0 || f.cooldown > 0 || f.rSkill > 0) return false;
+
+    const towardAI = ((ai.x + ai.w/2) - (f.x + f.w/2)) >= 0 ? 1 : -1;
+
+    f.skill = SKILL_DURATION;
+    f.skillDur = SKILL_DURATION;
+    f.skillT = 0;
+    f.skillHit = false;
+    f.spin = 0;
+    f.skillCd = SKILL_COOLDOWN;
+    f.facing = towardAI;
+    return true;
+  }
+
+  function tryRSkill(f){
+    if (f.stun > 0) return false;
+    if (f.rSkillCd > 0) return false;
+    if (f.rSkill > 0 || f.skill > 0 || f.swing > 0 || f.cooldown > 0) return false;
+    if (f === ai && !isBossLevel()) return false;
+
+    const target = (f === player) ? ai : player;
+    const towardTarget = ((target.x + target.w/2) - (f.x + f.w/2)) >= 0 ? 1 : -1;
+
+    f.returnX = f.x;
+    f.returnY = f.y;
+    f.facing = towardTarget;
+    f.rSkill = RSKILL_DURATION;
+    f.rSkillDur = RSKILL_DURATION;
+    f.rSkillT = 0;
+    f.rSkillHit = false;
+    f.rReturnPending = false;
+    f.teleported = false;
+    f.rSkillCd = RSKILL_COOLDOWN;
+
+    return true;
+  }
+
+  function performRTeleport(f, target){
+    const gap = 10;
+    const newX = (f.facing === 1)
+      ? target.x - f.w - gap
+      : target.x + target.w + gap;
+
+    f.x = clamp(newX, 14, W-14-f.w);
+    f.y = target.y;
+    f.vx = 0;
+    f.vy = 0;
+    f.teleported = true;
+  }
+
+  function isActiveSwing(f){
+    if (f.swing <= 0) return false;
+    return (f.swingT > 0.18 && f.swingT < 0.92);
+  }
+
+  function swordSegment(f){
+    const dir = f.facing;
+    const handX = f.x + f.w/2 + dir*18;
+    const handY = f.y + 40;
+
+    let baseAngle;
+    if (f.rSkill > 0){
+      baseAngle = lerp(-1.45, 0.15, clamp(f.rSkillT*1.7, 0, 1));
+    } else if (f.swingType === "air"){
+      baseAngle = lerp(1.10, 1.58, f.swingT);
+    } else {
+      baseAngle = (f.attackStyle === "thrust")
+        ? lerp(0.10, -0.06, f.swingT)
+        : lerp(-1.30, 0.30, f.swingT);
+    }
+
+    const angle = (dir === 1) ? baseAngle : mirrorAroundPi(baseAngle);
+
+    const handleLen = 14;
+    const extend = (f.attackStyle === "thrust" && f.swingType === "ground")
+      ? (1.0 + 0.35*Math.sin(Math.PI * f.swingT))
+      : 1.0;
+
+    const bladeLen = f.rSkill > 0 ? BLADE_LEN + 14 : BLADE_LEN;
+
+    const p1x = handX + Math.cos(angle) * handleLen;
+    const p1y = handY + Math.sin(angle) * handleLen;
+    const p2x = handX + Math.cos(angle) * (handleLen + bladeLen*extend);
+    const p2y = handY + Math.sin(angle) * (handleLen + bladeLen*extend);
+    return {handX, handY, angle, p1x,p1y,p2x,p2y};
+  }
+
+  function skillHitCircle(f){
+    const cx = f.x + f.w/2 + (38 * f.facing);
+    const cy = f.y + f.h/2;
+    const r = 52;
+    return {cx, cy, r};
+  }
+
+  function rSkillHitBox(f){
+    const dir = f.facing;
+    const w = 88;
+    const h = 90;
+    const x = dir === 1 ? f.x + f.w - 4 : f.x - w + 4;
+    const y = f.y + 4;
+    return {x, y, w, h};
+  }
+
+  function segmentAABBOverlap(seg, aabb, thickness){
+    const minX = Math.min(seg.p1x, seg.p2x) - thickness;
+    const maxX = Math.max(seg.p1x, seg.p2x) + thickness;
+    const minY = Math.min(seg.p1y, seg.p2y) - thickness;
+    const maxY = Math.max(seg.p1y, seg.p2y) + thickness;
+    return !(maxX < aabb.x || minX > aabb.x + aabb.w || maxY < aabb.y || minY > aabb.y + aabb.h);
+  }
+
+  function rectRectOverlap(a, b){
+    return !(a.x+a.w < b.x || a.x > b.x+b.w || a.y+a.h < b.y || a.y > b.y+b.h);
+  }
+
+  function circleAABBOverlap(cx, cy, r, rect){
+    const closestX = clamp(cx, rect.x, rect.x + rect.w);
+    const closestY = clamp(cy, rect.y, rect.y + rect.h);
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    return dx*dx + dy*dy <= r*r;
+  }
+
+  function damageColorFor(defender){
+    return defender.kind === "ai" ? "#ef4444" : "#3b82f6";
+  }
+
+  function getBasicDamage(attacker){
+    const base = attacker.onGround ? BASE_DMG_GROUND : BASE_DMG_AIR;
+    if (attacker === player) return Math.round(base * getPlayerDamageMult());
+    return base;
+  }
+
+  function applyDamage(attacker, defender, rawDmg, colorOverride=null){
+    let dmg = rawDmg;
+    if (attacker === ai && defender === player && isBossLevel()){
+      dmg *= BOSS_EXTRA_DAMAGE;
+    }
+    dmg = Math.max(1, Math.round(dmg));
+
+    defender.hp = clamp(defender.hp - dmg, 0, defender.maxHp);
+    defender.hitFlash = 0.18;
+    spawnFloat(`-${dmg}`, defender.x + defender.w/2, defender.y - 8, colorOverride || damageColorFor(defender));
+    if (attacker === player) hitStop = Math.max(hitStop, 0.01);
+    return dmg;
+  }
+
+  function applyHit(attacker, defender){
+    const dmg = getBasicDamage(attacker);
+    applyDamage(attacker, defender, dmg);
+  }
+
+  function applySkillHit(attacker, defender){
+    defender.stun = Math.max(defender.stun, 0.22);
+    applyDamage(attacker, defender, DMG_SKILL, damageColorFor(defender));
+    hitStop = Math.max(hitStop, 0.03);
+  }
+
+  function applyRSkillHit(attacker, defender){
+    defender.stun = Math.max(defender.stun, 0.26);
+    applyDamage(attacker, defender, DMG_RSKILL, damageColorFor(defender));
+    hitStop = Math.max(hitStop, 0.04);
+  }
+
+  function resolveHit(attacker, defender){
+    if (!isActiveSwing(attacker) || attacker.hitThisSwing) return;
+    if (PLAYER_INVULN_IN_AIR && attacker === ai && defender === player && !player.onGround) return;
+
+    const toward = ((defender.x + defender.w/2) - (attacker.x + attacker.w/2)) >= 0 ? 1 : -1;
+    if (attacker.facing !== toward) return;
+
+    const seg = swordSegment(attacker);
+    const body = {x:defender.x, y:defender.y, w:defender.w, h:defender.h};
+    if (segmentAABBOverlap(seg, body, HIT_THICKNESS)){
+      applyHit(attacker, defender);
+      attacker.hitThisSwing = true;
+    }
+  }
+
+  function resolveSkillHit(attacker, defender){
+    if (attacker !== player) return;
+    if (attacker.skill <= 0 || attacker.skillHit) return;
+
+    const hit = skillHitCircle(attacker);
+    const body = {x:defender.x, y:defender.y, w:defender.w, h:defender.h};
+    if (circleAABBOverlap(hit.cx, hit.cy, hit.r, body)){
+      applySkillHit(attacker, defender);
+      attacker.skillHit = true;
+    }
+  }
+
+  function resolveRSkillHit(attacker, defender){
+    if (attacker.rSkill <= 0 || attacker.rSkillHit) return;
+
+    const hit = rSkillHitBox(attacker);
+    const body = {x:defender.x, y:defender.y, w:defender.w, h:defender.h};
+
+    if (rectRectOverlap(hit, body)){
+      applyRSkillHit(attacker, defender);
+      attacker.rSkillHit = true;
+      attacker.rReturnPending = true;
+    }
+  }
+
+  function playerControl(){
+    if (player.skill <= 0 && player.rSkill <= 0){
+      const towardAI = ((ai.x + ai.w/2) - (player.x + player.w/2)) >= 0 ? 1 : -1;
+      player.facing = towardAI;
+    }
+
+    if (player.stun > 0){
+      player.vx = 0;
+      input.jumpEdge = false;
+      input.atkEdge = false;
+      input.skillEdge = false;
+      input.rSkillEdge = false;
+      return;
+    }
+
+    if (player.skill > 0 || player.rSkill > 0){
+      input.jumpEdge = false;
+      input.atkEdge = false;
+      input.skillEdge = false;
+      input.rSkillEdge = false;
+      return;
+    }
+
+    let dir = 0;
+    if (input.left) dir -= 1;
+    if (input.right) dir += 1;
+
+    const speed = player.baseSpeed * (player.onGround ? 1 : player.airControl);
+    player.vx = dir * speed;
+
+    if (input.jumpEdge && player.onGround){
+      player.vy = -player.jumpVel;
+      player.onGround = false;
+    }
+    input.jumpEdge = false;
+
+    const dx = (ai.x + ai.w/2) - (player.x + player.w/2);
+    const towardAI = dx >= 0 ? 1 : -1;
+    const adx = Math.abs(dx);
+    if (dir === towardAI && adx < HARD_MIN_GAP + 2) player.vx = 0;
+
+    if (input.atkEdge){
+      tryAttack(player, "slash");
+      input.atkEdge = false;
+    }
+
+    if (input.skillEdge){
+      trySkill(player);
+      input.skillEdge = false;
+    }
+
+    if (input.rSkillEdge){
+      tryRSkill(player);
+      input.rSkillEdge = false;
+    }
+  }
+
+  function aiBrain(dt){
+    const towardPlayer = ((player.x + player.w/2) - (ai.x + ai.w/2)) >= 0 ? 1 : -1;
+    ai.facing = towardPlayer;
+
+    if (ai.stun > 0 || ai.skill > 0 || ai.rSkill > 0){
+      ai.vx = 0;
+      return;
+    }
+
+    const dx = (player.x + player.w/2) - (ai.x + ai.w/2);
+    const adx = Math.abs(dx);
+    const speed = ai.baseSpeed * 0.88 * AI_MOVE_SPEED_MULT;
+
+    const intelMul = getAiIntelMult();
+    const intel = Math.max(0.20, Math.min(1.0, 0.20 + 0.15*(intelMul - 1)));
+
+    const reaction = lerp(0.30, 0.07, intel);
+    const feintProb = lerp(0.04, 0.28, intel);
+    const punishProb = lerp(0.20, 0.92, intel);
+    const jumpAttackProb = lerp(0.02, 0.38, intel);
+    const jumpEvadeProb = lerp(0.02, 0.24, intel);
+
+    const ideal = lerp(185, 140, intel);
+    const tooClose = 110;
+
+    const playerAttacking = (player.swing > 0 || player.skill > 0 || player.rSkill > 0);
+    const playerRecover = ((player.cooldown > 0 && player.swing <= 0) || player.skill > 0 || player.rSkill > 0);
+
+    ai.think -= dt;
+    if (ai.think <= 0){
+      ai.state = "space";
+
+      if (playerAttacking && Math.random() < jumpEvadeProb && ai.onGround){
+        ai.state = "jump_evade";
+      } else if (playerAttacking && Math.random() < 0.55){
+        ai.state = "retreat";
+      }
+
+      if (playerRecover && adx < ideal + 20 && Math.random() < punishProb){
+        ai.state = "punish";
+      }
+
+      if (!playerAttacking && Math.random() < feintProb){
+        ai.state = "feint";
+        ai.feintT = 0.28;
+      }
+
+      if (!playerAttacking && ai.onGround && adx < ideal + 10 && Math.random() < jumpAttackProb){
+        ai.state = "jump_attack";
+      }
+
+      ai.think = reaction;
+    }
+
+    let dir = 0;
+    if (ai.state === "space"){
+      if (adx > ideal + 10) dir = towardPlayer;
+      else if (adx < tooClose) dir = -towardPlayer;
+    } else if (ai.state === "retreat"){
+      dir = -towardPlayer;
+    } else if (ai.state === "punish"){
+      dir = (adx > HARD_MIN_GAP + 20) ? towardPlayer : 0;
+    } else if (ai.state === "feint"){
+      ai.feintT -= dt;
+      dir = (ai.feintT > 0.14) ? towardPlayer : -towardPlayer;
+      if (ai.feintT <= 0) ai.state = "space";
+    } else if (ai.state === "jump_evade"){
+      if (ai.onGround){
+        ai.vy = -ai.jumpVel;
+        ai.onGround = false;
+      }
+      dir = -towardPlayer;
+    } else if (ai.state === "jump_attack"){
+      if (ai.onGround){
+        ai.vy = -ai.jumpVel;
+        ai.onGround = false;
+      }
+      dir = towardPlayer;
+    }
+
+    if (ai.swing > 0 && !ai.hitThisSwing) dir = towardPlayer;
+    if (adx < HARD_MIN_GAP + 2 && dir === towardPlayer) dir = 0;
+
+    ai.vx = dir * speed;
+
+    if (isBossLevel() && ai.rSkillCd <= 0 && adx > 120 && adx < 260 && Math.random() < 0.012){
+      if (tryRSkill(ai)) return;
+    }
+
+    if (adx < ideal + 10 && ai.cooldown <= 0 && ai.swing <= 0){
+      let p = lerp(0.18, 0.60, intel);
+      if (ai.state === "punish") p = lerp(0.40, 0.90, intel);
+      if (Math.random() < p){
+        const style = (adx > 155) ? "thrust" : "slash";
+        tryAttack(ai, style);
+      }
+    }
+
+    if (!ai.onGround && ai.state === "jump_attack" && player.onGround && adx < 175 && ai.cooldown <= 0 && ai.swing <= 0){
+      tryAttack(ai, "slash");
+    }
+  }
+
+  function updateRSkillState(f, dt){
+    if (f.rSkill <= 0) return;
+
+    f.rSkill = Math.max(0, f.rSkill - dt);
+    f.rSkillT = 1 - (f.rSkill / f.rSkillDur);
+
+    const target = (f === player) ? ai : player;
+
+    if (!f.teleported && f.rSkillT >= 0.12){
+      const towardTarget = ((target.x + target.w/2) - (f.x + f.w/2)) >= 0 ? 1 : -1;
+      f.facing = towardTarget;
+      performRTeleport(f, target);
+    }
+
+    if (f.rReturnPending && f.rSkillT >= 0.58){
+      f.x = clamp(f.returnX, 14, W-14-f.w);
+      f.y = f.returnY;
+      f.vx = 0;
+      f.vy = 0;
+      f.onGround = (f.y >= GROUND);
+      f.rReturnPending = false;
+    }
+
+    if (f.rSkill <= 0){
+      if (f.rReturnPending){
+        f.x = clamp(f.returnX, 14, W-14-f.w);
+        f.y = f.returnY;
+        f.vx = 0;
+        f.vy = 0;
+        f.onGround = (f.y >= GROUND);
+        f.rReturnPending = false;
+      }
+      f.rSkillT = 0;
+      f.teleported = false;
+    }
+  }
+
+  function stepFighter(f, dt){
+    if (f.hitFlash > 0) f.hitFlash = Math.max(0, f.hitFlash - dt);
+    if (f.stun > 0) f.stun = Math.max(0, f.stun - dt);
+    if (f.cooldown > 0) f.cooldown = Math.max(0, f.cooldown - dt);
+    if (f.skillCd > 0 && f === player) f.skillCd = Math.max(0, f.skillCd - dt);
+    if (f.rSkillCd > 0) f.rSkillCd = Math.max(0, f.rSkillCd - dt);
+
+    if (f.swing > 0) f.swing = Math.max(0, f.swing - dt);
+    if (f.swing > 0 && f.swingDur > 0) f.swingT = 1 - (f.swing / f.swingDur);
+    else f.swingT = 0;
+
+    if (f.skill > 0){
+      f.skill = Math.max(0, f.skill - dt);
+      f.skillT = 1 - (f.skill / f.skillDur);
+      f.spin += dt * 22;
+    } else {
+      f.skillT = 0;
+    }
+
+    updateRSkillState(f, dt);
+
+    if (f.stun <= 0 && f.rSkill > 0){
+      f.vx = 0;
+      f.vy = 0;
+    } else if (f.stun <= 0 && f.skill > 0){
+      const target = (f === player) ? ai : player;
+      const towardTarget = ((target.x + target.w/2) - (f.x + f.w/2)) >= 0 ? 1 : -1;
+      f.facing = towardTarget;
+      f.vx = f.facing * SKILL_SPEED;
+    } else if (f.stun <= 0 && f.swing > 0 && !f.hitThisSwing && f.onGround){
+      f.vx += f.facing * STEP_IN_SPEED;
+    }
+
+    const effVx = (f.stun > 0) ? 0 : f.vx;
+
+    f.x += effVx * dt;
+    f.y += f.vy * dt;
+
+    if (f.skill <= 0 && f.rSkill <= 0) {
+      f.vy += 2750 * dt;
+    } else {
+      f.vy += 0;
+    }
+
+    f.x = clamp(f.x, 14, W-14-f.w);
+    if (f.y >= GROUND){
+      f.y = GROUND;
+      f.vy = 0;
+      f.onGround = true;
+    } else {
+      f.onGround = false;
+    }
+
+    if (f.skill <= 0 && f.rSkill <= 0 && f.stun <= 0) f.vx *= 0.92;
+  }
+
+  function updatePlayerRegen(dt){
+    if (!playerRegenEnabled || !running) return;
+    playerRegenTimer -= dt;
+    if (playerRegenTimer <= 0){
+      player.hp = clamp(player.hp + REGEN_AMOUNT, 0, player.maxHp);
+      spawnFloat(`+${REGEN_AMOUNT}`, player.x + player.w/2, player.y - 14, "#22c55e");
+      playerRegenTimer += REGEN_INTERVAL;
+    }
+  }
+
+  function roundRect(x,y,w,h,r){
+    const rr = Math.min(r,w/2,h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y);
+    ctx.arcTo(x+w,y,x+w,y+h,rr);
+    ctx.arcTo(x+w,y+h,x,y+h,rr);
+    ctx.arcTo(x,y+h,x,y,rr);
+    ctx.arcTo(x,y,x+w,y,rr);
+    ctx.closePath();
+  }
+
+  function drawBackground(){
+    if (theme.startsWith("은하 전장")) return drawGalaxy();
+    if (theme.startsWith("심해 도시")) return drawDeepSea();
+    if (theme.startsWith("고대 숲")) return drawForest();
+    if (theme.startsWith("빙하 협곡")) return drawArctic();
+    if (theme.startsWith("황혼 성곽")) return drawCastle();
+    if (theme.startsWith("화산 지대")) return drawVolcano();
+    if (theme.startsWith("사막 유적")) return drawDesert();
+    return drawNeonCity();
+  }
+
+  function drawGalaxy(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#030511");
+    g.addColorStop(0.55,"#120a30");
+    g.addColorStop(1,"#09111f");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    for(let i=0;i<160;i++){
+      const x = (i*83)%W;
+      const y = (i*47)%(GROUND-20);
+      const r = (i%4===0)?1.8:1.0;
+      ctx.globalAlpha = 0.35 + (i%5)*0.1;
+      ctx.fillStyle = i%7===0 ? "#a78bfa" : "#ffffff";
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 0.22;
+    const neb = ctx.createRadialGradient(W*0.3,H*0.22,20,W*0.3,H*0.22,240);
+    neb.addColorStop(0,"#7c3aed");
+    neb.addColorStop(1,"transparent");
+    ctx.fillStyle = neb; ctx.fillRect(0,0,W,H);
+
+    const neb2 = ctx.createRadialGradient(W*0.74,H*0.28,20,W*0.74,H*0.28,220);
+    neb2.addColorStop(0,"#38bdf8");
+    neb2.addColorStop(1,"transparent");
+    ctx.fillStyle = neb2; ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(0, GROUND+92, W, H-(GROUND+92));
+    ctx.strokeStyle = "rgba(203,213,225,0.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawDeepSea(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#021427");
+    g.addColorStop(0.55,"#04345d");
+    g.addColorStop(1,"#031a2d");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    for(let i=0;i<10;i++){
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = "#67e8f9";
+      ctx.beginPath();
+      ctx.arc((i*140+60)%W, 70 + (i%3)*24, 40 + (i%4)*18, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 0.22;
+    for(let i=0;i<24;i++){
+      const x = i*50;
+      const h = 30 + (i%5)*18;
+      ctx.fillStyle = "#0f766e";
+      ctx.fillRect(x, GROUND+92-h, 16, h);
+    }
+
+    ctx.globalAlpha = 0.13;
+    for(let i=0;i<8;i++){
+      ctx.fillStyle = "#94a3b8";
+      roundRect(80+i*120, H*0.54 + (i%2)*12, 78, 90, 10);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#02233c";
+    ctx.fillRect(0,H*0.6,W,H*0.4);
+    ctx.strokeStyle = "rgba(226,232,240,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawForest(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#0a1b0f");
+    g.addColorStop(0.58,"#18361d");
+    g.addColorStop(1,"#08150c");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha = 0.22;
+    for(let i=0;i<14;i++){
+      const x = i*90;
+      ctx.fillStyle = "#1f4d2f";
+      ctx.fillRect(x, 140, 26, H);
+      ctx.beginPath();
+      ctx.arc(x+13, 140, 44 + (i%3)*8, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 0.14;
+    for(let i=0;i<20;i++){
+      ctx.fillStyle = "#86efac";
+      ctx.beginPath();
+      ctx.arc((i*57)%W, 70+(i%6)*18, 2.5, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#0e2413";
+    ctx.fillRect(0,GROUND+92,W,H-(GROUND+92));
+    ctx.strokeStyle = "rgba(167,243,208,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawArctic(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#07162d");
+    g.addColorStop(0.5,"#143858");
+    g.addColorStop(1,"#0a2236");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "#dbeafe";
+    for(let i=0;i<12;i++){
+      ctx.beginPath();
+      ctx.moveTo(i*95, GROUND+94);
+      ctx.lineTo(i*95+40, GROUND+40-(i%3)*16);
+      ctx.lineTo(i*95+90, GROUND+94);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 0.18;
+    for(let i=0;i<50;i++){
+      ctx.fillStyle = "#e0f2fe";
+      ctx.beginPath();
+      ctx.arc((i*73)%W, (i*31)%(GROUND-20), 1.5, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#09304b";
+    ctx.fillRect(0,GROUND+92,W,H-(GROUND+92));
+    ctx.strokeStyle = "rgba(226,232,240,0.75)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawCastle(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#2a1732");
+    g.addColorStop(0.55,"#4c1d3d");
+    g.addColorStop(1,"#1a1026");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = "#1f2937";
+    ctx.fillRect(W*0.18, H*0.24, W*0.64, H*0.28);
+    for(let i=0;i<6;i++){
+      ctx.fillRect(W*0.18 + i*120, H*0.18, 48, 70);
+    }
+    ctx.fillStyle = "#111827";
+    for(let i=0;i<10;i++){
+      ctx.fillRect(W*0.2 + i*70, H*0.32, 28, 48);
+    }
+
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = "#f59e0b";
+    for(let i=0;i<8;i++){
+      ctx.beginPath();
+      ctx.arc(120+i*120, 110+(i%2)*16, 6, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(0,GROUND+92,W,H-(GROUND+92));
+    ctx.strokeStyle = "rgba(251,191,36,0.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawVolcano(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#1a0b0b");
+    g.addColorStop(0.45,"#3b0d0d");
+    g.addColorStop(1,"#1a1212");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha = 0.26;
+    ctx.fillStyle = "#3f3f46";
+    ctx.beginPath();
+    ctx.moveTo(120,GROUND+94); ctx.lineTo(280,180); ctx.lineTo(430,GROUND+94); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(650,GROUND+94); ctx.lineTo(820,150); ctx.lineTo(980,GROUND+94); ctx.closePath(); ctx.fill();
+
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = "#f97316";
+    ctx.beginPath();
+    ctx.arc(280,190,18,0,Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(820,160,20,0,Math.PI*2); ctx.fill();
+
+    ctx.globalAlpha = 0.15;
+    for(let i=0;i<18;i++){
+      ctx.fillStyle = "#fb923c";
+      ctx.beginPath();
+      ctx.arc((i*61)%W, 80 + (i%4)*22, 3, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#2a1612";
+    ctx.fillRect(0,GROUND+92,W,H-(GROUND+92));
+    ctx.strokeStyle = "rgba(251,146,60,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawDesert(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#3f2b16");
+    g.addColorStop(0.5,"#9a6b2f");
+    g.addColorStop(1,"#5b3b16");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = "#fbbf24";
+    for(let i=0;i<7;i++){
+      ctx.beginPath();
+      ctx.ellipse(120+i*160, GROUND+70, 130, 34+(i%2)*8, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 0.20;
+    ctx.fillStyle = "#7c5a2b";
+    for(let i=0;i<6;i++){
+      roundRect(80+i*160, H*0.42 + (i%2)*8, 44, 84, 6);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#6b4a1e";
+    ctx.fillRect(0,GROUND+92,W,H-(GROUND+92));
+    ctx.strokeStyle = "rgba(253,224,71,0.48)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawNeonCity(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#081221");
+    g.addColorStop(0.52,"#111827");
+    g.addColorStop(1,"#090f1a");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha = 0.25;
+    for(let i=0;i<11;i++){
+      const x = 20 + i*98;
+      const bh = 120 + (i%5)*34;
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(x, GROUND+94-bh, 70, bh);
+      ctx.fillStyle = i%2===0 ? "#38bdf8" : "#a78bfa";
+      for(let r=0;r<6;r++){
+        for(let cc=0;cc<3;cc++){
+          ctx.fillRect(x+12+cc*16, GROUND+106-bh+r*18, 8, 10);
+        }
+      }
+    }
+
+    ctx.globalAlpha = 0.16;
+    ctx.strokeStyle = "#22d3ee";
+    for(let i=0;i<5;i++){
+      ctx.beginPath();
+      ctx.moveTo(0, 90+i*28);
+      ctx.lineTo(W, 60+i*22);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(0,GROUND+92,W,H-(GROUND+92));
+    ctx.strokeStyle = "rgba(34,211,238,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND+93);
+    ctx.lineTo(W, GROUND+93);
+    ctx.stroke();
+  }
+
+  function drawStars(){
+    if (!stormActive) return;
+    for (const s of stars){
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.rot);
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = "#fbbf24";
+      ctx.beginPath();
+      for (let i=0;i<10;i++){
+        const ang = i*Math.PI/5;
+        const rr = (i%2===0) ? s.r : s.r*0.45;
+        ctx.lineTo(Math.cos(ang)*rr, Math.sin(ang)*rr);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawFighter(f){
+    const hit = f.hitFlash > 0;
+    const dir = f.facing;
+    const headX = f.x + f.w/2;
+    const headY = f.y + 14;
+    const chestX = headX;
+    const chestY = f.y + 48;
+    const hipX = headX;
+    const hipY = f.y + 76;
+
+    if (f.kind === "ai"){
+      ctx.fillStyle = hit ? "#ef4444" : (isBossLevel() ? "#f97316" : "#fb7185");
+      roundRect(f.x+8, f.y+30, f.w-16, f.h-30, 14); ctx.fill();
+      ctx.fillStyle = hit ? "#ef4444" : "#cbd5e1";
+      roundRect(f.x+14, f.y+2, f.w-28, 26, 8); ctx.fill();
+      ctx.fillStyle = "#0b0f14";
+      ctx.fillRect(f.x+20, f.y+12, 10, 5);
+      ctx.fillRect(f.x+f.w-30, f.y+12, 10, 5);
+      if (isBossLevel()){
+        ctx.strokeStyle = "#f59e0b";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(headX, headY-2, 16, Math.PI, Math.PI*2);
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = hit ? "#2563eb" : "#60a5fa";
+      roundRect(f.x+10, f.y+28, f.w-20, f.h-28, 16); ctx.fill();
+      ctx.fillStyle = hit ? "#2563eb" : "#cbd5e1";
+      ctx.beginPath(); ctx.arc(headX, headY, 12, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#0b0f14";
+      ctx.beginPath(); ctx.arc(headX + dir*4, headY, 2.2, 0, Math.PI*2); ctx.fill();
+    }
+
+    const speedN = clamp(Math.abs(f.vx)/520, 0, 1);
+    const tt = performance.now()/120;
+    let walk = Math.sin(tt) * 18 * speedN;
+    let walk2 = Math.sin(tt + Math.PI) * 18 * speedN;
+
+    ctx.strokeStyle = "#0b0f14";
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    const shoulderL = {x: chestX - 12, y: chestY - 8};
+    const shoulderR = {x: chestX + 12, y: chestY - 8};
+
+    let armA = f.onGround ? walk : (dir*10);
+    let armB = f.onGround ? walk2 : (-dir*8);
+
+    let legA = f.onGround ? walk : 10;
+    let legB = f.onGround ? walk2 : -8;
+
+    if (!f.onGround){
+      armA *= 0.7; armB *= 0.7;
+      legA = 8; legB = -6;
+    }
+
+    const elbowL = {x: shoulderL.x - 10 + armA*0.2, y: shoulderL.y + 12 + Math.abs(armA)*0.12};
+    const handL  = {x: elbowL.x - 8, y: elbowL.y + 12};
+    const elbowR = {x: shoulderR.x + 10 + armB*0.2, y: shoulderR.y + 12 + Math.abs(armB)*0.12};
+    const handR  = {x: elbowR.x + 8, y: elbowR.y + 12};
+
+    ctx.beginPath(); ctx.moveTo(shoulderL.x, shoulderL.y); ctx.lineTo(elbowL.x, elbowL.y); ctx.lineTo(handL.x, handL.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(shoulderR.x, shoulderR.y); ctx.lineTo(elbowR.x, elbowR.y); ctx.lineTo(handR.x, handR.y); ctx.stroke();
+
+    let kneeL = {x: hipX - 10 + legA*0.25, y: hipY + 14};
+    let footL = {x: kneeL.x - 6, y: kneeL.y + 18};
+    let kneeR = {x: hipX + 10 + legB*0.25, y: hipY + 14};
+    let footR = {x: kneeR.x + 6, y: kneeR.y + 18};
+
+    if (!f.onGround){
+      kneeL = {x: hipX - 6, y: hipY + 10};
+      footL = {x: hipX + 10, y: hipY + 18};
+      kneeR = {x: hipX + 6, y: hipY + 10};
+      footR = {x: hipX - 10, y: hipY + 20};
+    }
+
+    ctx.beginPath(); ctx.moveTo(hipX-6, hipY); ctx.lineTo(kneeL.x, kneeL.y); ctx.lineTo(footL.x, footL.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hipX+6, hipY); ctx.lineTo(kneeR.x, kneeR.y); ctx.lineTo(footR.x, footR.y); ctx.stroke();
+
+    drawSword(f);
+    drawSkillEffect(f);
+    drawRSkillEffect(f);
+
+    if (f.stun > 0){
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "#fbbf24";
+      ctx.font = "900 14px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("스턴!", headX, f.y - 8);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawSword(f){
+    const seg = swordSegment(f);
+    const {handX, handY, angle} = seg;
+
+    if (f.swing > 0){
+      ctx.save();
+      ctx.globalAlpha = (f.kind==="ai") ? 0.24 : 0.20;
+      ctx.strokeStyle = (f.kind==="ai") ? "#38bdf8" : "#fbbf24";
+      ctx.lineWidth = 12;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      const span = (f.swingType === "air") ? 1.60 : (f.attackStyle==="thrust" ? 0.55 : 1.35);
+      ctx.arc(handX, handY, TRAIL_R, angle - span*(1-f.swingT), angle, false);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.translate(handX, handY);
+    ctx.rotate(angle);
+
+    ctx.fillStyle = "#6b7280";
+    roundRect(-7, -7, 18, 14, 5); ctx.fill();
+    ctx.fillStyle = "#9ca3af";
+    roundRect(7, -11, 12, 22, 5); ctx.fill();
+
+    if (f.kind==="ai"){
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = "#38bdf8";
+      roundRect(18, -5, BLADE_LEN, 10, 7); ctx.fill();
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = "#a78bfa";
+      roundRect(18, -9, BLADE_LEN, 18, 10); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#e0f2fe";
+      roundRect(22, -2.5, BLADE_LEN-10, 5, 5); ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(18,-6);
+      ctx.lineTo(18 + BLADE_LEN-18, -3);
+      ctx.lineTo(18 + BLADE_LEN, 0);
+      ctx.lineTo(18 + BLADE_LEN-18, 3);
+      ctx.lineTo(18, 6);
+      ctx.closePath();
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawSkillEffect(f){
+    if (f !== player || f.skill <= 0) return;
+
+    const {cx, cy, r} = skillHitCircle(f);
+    const pulse = 0.7 + Math.sin(performance.now()/40) * 0.15;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(f.spin);
+
+    ctx.globalAlpha = 0.26;
+    ctx.strokeStyle = "#818cf8";
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * pulse, 0, Math.PI*2);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 28;
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 14, 0.4, Math.PI*1.7);
+    ctx.stroke();
+
+    for(let i=0;i<6;i++){
+      const a = i * (Math.PI/3);
+      ctx.strokeStyle = i%2===0 ? "#e0e7ff" : "#93c5fd";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*(r-12), Math.sin(a)*(r-12));
+      ctx.lineTo(Math.cos(a)*(r+22), Math.sin(a)*(r+22));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawRSkillEffect(f){
+    if (f.rSkill <= 0) return;
+
+    const box = rSkillHitBox(f);
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = f.kind === "player" ? "#f59e0b" : "#ef4444";
+    roundRect(box.x, box.y, box.w, box.h, 14);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = f.kind === "player" ? "#fde68a" : "#fca5a5";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(box.x + (f.facing===1 ? 6 : box.w-6), box.y + 6);
+    ctx.lineTo(box.x + (f.facing===1 ? box.w-6 : 6), box.y + box.h - 6);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDamageTexts(){
+    for (const t of floatTexts){
+      ctx.save();
+      ctx.globalAlpha = t.a;
+      ctx.fillStyle = t.color;
+      ctx.font = "900 44px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(t.text, t.x, t.y);
+      ctx.restore();
+    }
+  }
+
+  function drawUIOverlay(){
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "14px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    const stormTxt = stormActive ? ` | 별폭풍 남은별:${stormStarsLeft}` : "";
+    const rewardTxt = playerRegenEnabled ? " | 보상활성:공격+5%,재생중" : "";
+    ctx.fillText(`AI 지능:${getAiIntelMult().toFixed(2)}x | AI이동:1.00x 고정 | E쿨:${Math.max(0,player.skillCd).toFixed(1)}s | R쿨:${Math.max(0,player.rSkillCd).toFixed(1)}s${stormTxt}${rewardTxt}`, 18, 26);
+  }
+
+  function tick(dt){
+    if (!started || !running) return;
+
+    if (hitStop > 0){
+      hitStop = Math.max(0, hitStop - dt);
+      return;
+    }
+
+    timeLeft = Math.max(0, timeLeft - dt);
+    if (timeLeft <= 0){
+      running = false;
+      elStatus.textContent = "시간 종료";
+      return;
+    }
+
+    playerControl();
+    aiBrain(dt);
+
+    stepFighter(player, dt);
+    stepFighter(ai, dt);
+
+    enforceNoPass();
+    updateStorm(dt);
+
+    resolveHit(player, ai);
+    resolveHit(ai, player);
+    resolveSkillHit(player, ai);
+    resolveRSkillHit(player, ai);
+    resolveRSkillHit(ai, player);
+
+    updatePlayerRegen(dt);
+    updateFloatTexts(dt);
+
+    if (ai.hp <= 0){
+      const bossCleared = isBossLevel();
+      running = false;
+      elStatus.textContent = bossCleared ? "보스 격파!" : "승리!";
+
+      if (bossCleared){
+        playerDamageBonus *= BOSS_REWARD_DAMAGE_MULT;
+        playerRegenEnabled = true;
+        playerRegenTimer = REGEN_INTERVAL;
+        spawnFloat("공격력 +5%", W/2, 140, "#22c55e");
+      }
+
+      setTimeout(() => {
+        level += 1;
+        running = true;
+        resetRound();
+      }, 800);
+    } else if (player.hp <= 0){
+      running = false;
+      elStatus.textContent = "패배!";
+      overlay.style.display = "flex";
+      btnStart.textContent = "Restart";
+      started = false;
+    }
+
+    updateHUD();
+  }
+
+  let last = performance.now();
+
+  function loop(now){
+    const dt = Math.min(0.033, (now-last)/1000);
+    last = now;
+
+    try{
+      tick(dt);
+
+      drawBackground();
+      drawStars();
+      drawFighter(player);
+      drawFighter(ai);
+      drawDamageTexts();
+      drawUIOverlay();
+
+      requestAnimationFrame(loop);
+    } catch(e){
+      ctx.fillStyle="#111827";
+      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#ef4444";
+      ctx.font="700 16px system-ui, sans-serif";
+      ctx.fillText("JS ERROR (loop stopped):", 18, 30);
+      ctx.font="13px system-ui, sans-serif";
+      ctx.fillText(String(e && (e.stack||e.message)||e), 18, 55);
+      elStatus.textContent = "에러 발생";
+      console.error(e);
+    }
+  }
+
+  pickThemeByLevel();
+  updateHUD();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
