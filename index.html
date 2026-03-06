@@ -116,11 +116,9 @@
   </div>
 
   <div class="help" id="helpText">
-    키보드: A/D 이동 · Space 점프 · 좌클릭 공격 · E 스킬1 · R 스킬2<br/>
+    키보드: A/D 이동 · Space 점프 · 좌클릭 공격 · E 스킬1 · R 스킬2 · ESC 일시정지<br/>
     모바일: 하단 버튼 사용<br/>
-    레벨 10 이후 AI 기본 공격 데미지 +10%<br/>
-    레벨 30 / 60 / 90 ... 마다 더 강한 보스 등장<br/>
-    보스 처치 시 직업 선택 가능: 궁수 / 로봇 / 마법사
+    10레벨마다 직업 변경 가능 · 보스 HP 300 · AI 기본 공격 데미지 +5
   </div>
 
   <canvas id="c" width="1100" height="520"></canvas>
@@ -147,11 +145,12 @@
     <p>
       Start를 누르면 시작!<br/>
       - 기본 직업은 검사<br/>
-      - 레벨 10 이후 AI 기본 공격 데미지 10% 증가<br/>
-      - 레벨 30 이후 AI도 휘몰아치는 칼날 사용 가능<br/>
-      - 보스는 30레벨마다 더 강해짐<br/>
-      - 보스 처치 후 직업 선택 가능: 궁수 / 로봇 / 마법사<br/>
-      - 보스 승리 보상: 공격력 +5%, 3초마다 HP +5
+      - 10레벨마다 직업 변경 가능<br/>
+      - AI 기본 공격 데미지 +5, 레벨 10 이후 추가로 10% 증가<br/>
+      - 새 직업(궁수/로봇/마법사)은 10레벨 이후 공격 데미지 -5 적용<br/>
+      - ESC를 누르면 일시정지 / 재개<br/>
+      - 30 / 60 / 90 레벨 ... 보스 등장, 보스 HP는 300<br/>
+      - 보스 격파 보상: 공격력 +5%, 3초마다 HP +5
     </p>
     <div class="btnrow">
       <button id="btnStart">Start</button>
@@ -159,17 +158,27 @@
   </div>
 </div>
 
+<div class="overlay" id="pauseOverlay" style="display:none;">
+  <div class="panel">
+    <h2>일시정지</h2>
+    <p>ESC를 다시 누르면 게임이 재개됩니다.</p>
+    <div class="btnrow">
+      <button id="btnResume">Resume</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="classOverlay" style="display:none;">
   <div class="panel">
-    <h2>보스를 쓰러뜨렸습니다. 직업을 선택하세요.</h2>
-    <p>선택한 직업은 다음 라운드부터 적용됩니다. AI는 직업이 바뀌지 않습니다.</p>
+    <h2>직업을 선택하세요.</h2>
+    <p>10레벨마다 직업을 변경할 수 있습니다. 선택한 직업은 다음 라운드부터 적용됩니다.</p>
     <div class="class-grid">
       <div class="class-card" data-job="archer">
         <h3>1. 궁수</h3>
         <p>
           기본 공격: 화살 -15<br/>
           스킬1 연속 발사: 5발, 각 -12, 10초<br/>
-          스킬2 지원 사격: 3초 동안 병사 3명 사격, 15초
+          스킬2 지원 사격: 3초 동안 1초마다 1발, 15초
         </p>
       </div>
       <div class="class-card" data-job="robot">
@@ -212,8 +221,10 @@
   const helpText = document.getElementById("helpText");
 
   const overlay = document.getElementById("overlay");
+  const pauseOverlay = document.getElementById("pauseOverlay");
   const classOverlay = document.getElementById("classOverlay");
   const btnStart = document.getElementById("btnStart");
+  const btnResume = document.getElementById("btnResume");
   const btnSkill1 = document.getElementById("btnSkill1");
   const btnSkill2 = document.getElementById("btnSkill2");
 
@@ -244,7 +255,13 @@
     if (e.code === "Space") input.jumpEdge = true;
     if (e.code === "KeyE") input.skill1Edge = true;
     if (e.code === "KeyR") input.skill2Edge = true;
-    if (["KeyA","KeyD","Space","KeyE","KeyR"].includes(e.code)) e.preventDefault();
+
+    if (e.code === "Escape") {
+      e.preventDefault();
+      togglePause();
+    }
+
+    if (["KeyA","KeyD","Space","KeyE","KeyR","Escape"].includes(e.code)) e.preventDefault();
   }, {passive:false});
 
   addEventListener("keyup", (e) => {
@@ -273,7 +290,7 @@
 
   function makeFighter(kind, x, speed){
     return {
-      kind, x, y:GROUND, w: kind==="player" ? 50 : 60, h:92, vx:0, vy:0,
+      kind, x, y:GROUND, w: kind==="player" ? 42 : 48, h:92, vx:0, vy:0,
       baseSpeed:speed, airControl:0.78, jumpVel:1296, onGround:true,
       hp:100, maxHp:100, facing:(kind==="ai") ? -1 : 1,
 
@@ -288,13 +305,12 @@
       skill1Cd:0,
       skill2Cd:0,
 
-      // 검사 전용
       whirl:0, whirlDur:0, whirlT:0, whirlHit:false, spin:0,
       blink:0, blinkDur:0, blinkT:0, blinkHit:false, blinkReturn:false, returnX:0, returnY:0, teleported:false,
 
-      // 궁수/마법사/로봇 공용 상태
       assistTime:0,
       assistShotTimer:0,
+      assistIndex:0,
       burnTime:0,
       burnTick:1.0,
 
@@ -303,7 +319,7 @@
   }
 
   const player = makeFighter("player", 290, 490);
-  const ai = makeFighter("ai", 860, 420);
+  const ai = makeFighter("ai", 860, 430);
 
   const floatTexts = [];
   const projectiles = [];
@@ -311,7 +327,7 @@
   const soldiers = [];
   const stars = [];
 
-  let started=false, running=false;
+  let started=false, running=false, paused=false;
   let level=1;
   let timeLeft=ROUND_TIME;
   let hitStop=0;
@@ -321,23 +337,42 @@
   let playerRegenTimer = 3.0;
   let pendingClassChoice = false;
   let nextLevelAfterChoice = 1;
+  let bossWarnTimer = 0;
 
   const STORM_LEVEL = 6;
   const STORM_TOTAL = 20;
   const STAR_STUN = 0.5;
-  const HARD_MIN_GAP = 92;
-  const BLADE_LEN = 90;
+  const HARD_MIN_GAP = 88;
   const HIT_THICKNESS = 11;
   const TRAIL_R = 92;
   const STEP_IN_SPEED = 210;
 
   function isBossLevel(lv=level){ return lv % 30 === 0; }
   function bossTier(lv=level){ return Math.max(1, Math.floor(lv / 30)); }
-  function aiIntelMult(){ return Math.pow(1.1, level-1); }
+  function aiIntelMult(){ return Math.pow(1.12, level-1); }
   function aiDamageMult(){ return level >= 10 ? 1.10 : 1.0; }
-  function aiBossHp(){
-    if (!isBossLevel()) return 100;
-    return Math.round(150 + (bossTier()-1)*50);
+  function aiBossHp(){ return 300; }
+  function shouldChooseClassAfterLevel(lv){ return lv % 10 === 0; }
+
+  function playerClassPenalty(){
+    return (level >= 10 && player.job !== "swordsman") ? 5 : 0;
+  }
+
+  function calcOutgoingDamage(attacker, base){
+    let dmg = base;
+
+    if (attacker === player){
+      dmg = Math.round(dmg * playerDamageBonus);
+      if (player.job !== "swordsman" && level >= 10) dmg -= 5;
+      dmg = Math.max(1, dmg);
+    } else if (attacker === ai){
+      dmg = Math.round((dmg + 5) * aiDamageMult());
+      dmg = Math.max(1, dmg);
+    } else {
+      dmg = Math.max(1, Math.round(dmg));
+    }
+
+    return dmg;
   }
 
   function pickThemeByLevel(){
@@ -352,21 +387,24 @@
 
     if (player.job === "swordsman"){
       helpText.innerHTML =
-        `키보드: A/D 이동 · Space 점프 · 좌클릭 공격 · E 휘몰아침 · R 순간참<br/>` +
+        `키보드: A/D 이동 · Space 점프 · 좌클릭 공격 · E 휘몰아침 · R 순간참 · ESC 일시정지<br/>` +
         `검사 기본 공격: 지상 -5 / 공중 -10 · E 적중 -30 · R 적중 -40<br/>` +
-        `레벨 10 이후 AI 기본 공격 데미지 +10% · 레벨 30 이후 AI도 휘몰아치는 칼날 사용 가능 · 보스 처치 시 직업 선택`;
+        `10레벨마다 직업 변경 가능 · AI 기본 공격 +5 · 보스 HP 300`;
     } else if (player.job === "archer"){
       helpText.innerHTML =
-        `키보드: A/D 이동 · Space 점프 · 좌클릭 활 공격 · E 연속 발사 · R 지원 사격<br/>` +
-        `궁수 기본 공격: 화살 -15 · E 5발 각 -12 · R 3초 동안 병사 3명이 사격`;
+        `키보드: A/D 이동 · Space 점프 · 좌클릭 활 공격 · E 연속 발사 · R 지원 사격 · ESC 일시정지<br/>` +
+        `궁수 기본 공격: 화살 -15 · E 5발 각 -12 · R 3초 동안 1초마다 1발<br/>` +
+        `10레벨 이후 새 직업은 공격 데미지 -5 적용`;
     } else if (player.job === "robot"){
       helpText.innerHTML =
-        `키보드: A/D 이동 · Space 점프 · 좌클릭 레이저 검 · E 레이저 빔 · R 레이저 회오리<br/>` +
-        `로봇 기본 공격: 레이저 검 -12 · E 빔 -20 + 스턴2초 · R 회오리 -35 + 넉백`;
+        `키보드: A/D 이동 · Space 점프 · 좌클릭 레이저 검 · E 레이저 빔 · R 레이저 회오리 · ESC 일시정지<br/>` +
+        `로봇 기본 공격: 레이저 검 -12 · E 빔 -20 + 스턴2초 · R 회오리 -35 + 넉백<br/>` +
+        `10레벨 이후 새 직업은 공격 데미지 -5 적용`;
     } else {
       helpText.innerHTML =
-        `키보드: A/D 이동 · Space 점프 · 좌클릭 마법구 · E 번개 공격 · R 파이어볼<br/>` +
-        `마법사 기본 공격: 1회 1개, 2회 2개, 3회 3개 마법구(각 -10) · E 번개 3개 각 -55 · R 파이어볼 2개 각 -25 + 화염 5초`;
+        `키보드: A/D 이동 · Space 점프 · 좌클릭 마법구 · E 번개 공격 · R 파이어볼 · ESC 일시정지<br/>` +
+        `마법사 기본 공격: 1/2/3개 마법구(각 -10) · E 번개 3개 각 -55 · R 파이어볼 2개 각 -25 + 화염 5초<br/>` +
+        `10레벨 이후 새 직업은 공격 데미지 -5 적용`;
     }
   }
 
@@ -427,9 +465,7 @@
 
   function getSwordsmanBasicDamage(attacker){
     let d = attacker.onGround ? 5 : 10;
-    if (attacker === player) d = Math.round(d * playerDamageBonus);
-    if (attacker === ai) d = Math.round(d * aiDamageMult());
-    return d;
+    return calcOutgoingDamage(attacker, d);
   }
 
   function applyDamage(attacker, defender, rawDmg, colorOverride=null){
@@ -455,7 +491,7 @@
       f.attackStyle = "slash";
       let swing = f.swingType === "air" ? 0.28 : 0.22;
       let cd = f.swingType === "air" ? 0.46 : 0.36;
-      if (f === ai){ swing *= 1.8; cd *= 1.8; }
+      if (f === ai){ swing *= 1.5; cd *= 1.45; }
       f.swingDur = swing;
       f.swing = swing;
       f.cooldown = cd;
@@ -521,7 +557,7 @@
       f.whirlT = 0;
       f.whirlHit = false;
       f.spin = 0;
-      f.skill1Cd = f===player ? 10.0 : 10.0;
+      f.skill1Cd = 10.0;
       return true;
     }
 
@@ -529,7 +565,7 @@
       f.skill1Cd = 10.0;
       for(let i=0;i<5;i++){
         setTimeout(() => {
-          if (!running || f.hp <= 0) return;
+          if (!running || paused || f.hp <= 0) return;
           const dir = f.facing;
           createProjectile({
             x: f.x + f.w/2 + dir*28, y: f.y + 34, vx: dir*820, r:6,
@@ -594,11 +630,12 @@
     if (f.job === "archer"){
       f.skill2Cd = 15.0;
       f.assistTime = 3.0;
-      f.assistShotTimer = 0.1;
+      f.assistShotTimer = 1.0;
+      f.assistIndex = 0;
       soldiers.length = 0;
       for(let i=0;i<3;i++){
         soldiers.push({
-          owner:f, sideOffset:(i-1)*34, backOffset: 46 + i*10, shotTimer: 0.16 + i*0.12
+          owner:f, sideOffset:(i-1)*30, backOffset: 42 + i*18
         });
       }
       return true;
@@ -712,7 +749,7 @@
     const body = {x:defender.x, y:defender.y, w:defender.w, h:defender.h};
     if (segmentAABBOverlap(seg, body, HIT_THICKNESS)){
       let dmg;
-      if (attacker.job === "robot" && attacker === player) dmg = Math.round(12 * playerDamageBonus);
+      if (attacker.job === "robot" && attacker === player) dmg = calcOutgoingDamage(attacker, 12);
       else dmg = getSwordsmanBasicDamage(attacker);
       applyDamage(attacker, defender, dmg);
       attacker.hitThisSwing = true;
@@ -724,7 +761,8 @@
     const hit = skillHitCircle(attacker);
     const body = {x:defender.x, y:defender.y, w:defender.w, h:defender.h};
     if (circleAABBOverlap(hit.cx, hit.cy, hit.r, body)){
-      const dmg = attacker.job === "robot" ? Math.round(35 * (attacker===player ? playerDamageBonus : 1)) : Math.round(30 * (attacker===player ? playerDamageBonus : 1));
+      const base = attacker.job === "robot" ? 35 : 30;
+      const dmg = calcOutgoingDamage(attacker, base);
       applyDamage(attacker, defender, dmg);
       defender.stun = Math.max(defender.stun, attacker.job === "robot" ? 0.32 : 0.22);
       if (attacker.job === "robot"){
@@ -741,7 +779,7 @@
     const hit = blinkHitBox(attacker);
     const body = {x:defender.x, y:defender.y, w:defender.w, h:defender.h};
     if (rectRectOverlap(hit, body)){
-      applyDamage(attacker, defender, Math.round(40 * playerDamageBonus));
+      applyDamage(attacker, defender, calcOutgoingDamage(attacker, 40));
       defender.stun = Math.max(defender.stun, 0.24);
       attacker.blinkHit = true;
       attacker.blinkReturn = true;
@@ -764,7 +802,7 @@
       const body = {x:target.x, y:target.y, w:target.w, h:target.h};
 
       if (circleAABBOverlap(p.x, p.y, p.r, body)){
-        applyDamage(p.owner, target, p.owner===player ? Math.round(p.dmg * playerDamageBonus) : Math.round(p.dmg * (p.owner===ai ? aiDamageMult() : 1)));
+        applyDamage(p.owner, target, calcOutgoingDamage(p.owner, p.dmg));
         if (p.stun) target.stun = Math.max(target.stun, p.stun);
         if (p.burn) applyBurn(target, p.burn);
         if (p.knock) {
@@ -791,7 +829,7 @@
         const hitBox = {x:e.x-30, y:GROUND-84, w:60, h:100};
         const body = {x:target.x, y:target.y, w:target.w, h:target.h};
         if (rectRectOverlap(hitBox, body)){
-          applyDamage(e.owner, target, Math.round(55 * (e.owner===player ? playerDamageBonus : 1)));
+          applyDamage(e.owner, target, calcOutgoingDamage(e.owner, 55));
           target.stun = Math.max(target.stun, 0.35);
         }
         spawnEffect("lightning", e.x, GROUND-76, {t:0.26, color:"#fef08a"});
@@ -805,17 +843,19 @@
   function updateSoldiers(dt){
     if (player.assistTime > 0){
       player.assistTime = Math.max(0, player.assistTime - dt);
-      for (const s of soldiers){
-        s.shotTimer -= dt;
-        if (s.shotTimer <= 0){
-          s.shotTimer = 0.45;
-          const sx = player.x - s.backOffset;
-          const sy = player.y + 18 + s.sideOffset*0.2;
-          createProjectile({
-            x:sx, y:sy, vx:780, r:5, color:"#fde68a", dmg:12, owner:player, type:"soldierArrow"
-          });
-        }
+      player.assistShotTimer -= dt;
+
+      if (player.assistShotTimer <= 0 && soldiers.length > 0){
+        player.assistShotTimer += 1.0;
+        const s = soldiers[player.assistIndex % soldiers.length];
+        player.assistIndex++;
+        const sx = player.x - s.backOffset;
+        const sy = player.y + 18 + s.sideOffset*0.2;
+        createProjectile({
+          x:sx, y:sy, vx:780, r:5, color:"#fde68a", dmg:12, owner:player, type:"soldierArrow"
+        });
       }
+
       if (player.assistTime <= 0) soldiers.length = 0;
     }
   }
@@ -914,8 +954,8 @@
     player.vy=ai.vy=0;
     player.onGround=ai.onGround=true;
     player.facing=1; ai.facing=-1;
-    player.w = 50; // 몸을 조금 더 날씬하게
-    ai.w = 60;
+    player.w = 42;
+    ai.w = 48;
     ai.job = "swordsman";
     ai.bossCrown = isBossLevel();
 
@@ -925,27 +965,44 @@
       f.skill1Cd=0; f.skill2Cd=0;
       f.whirl=0; f.whirlDur=0; f.whirlT=0; f.whirlHit=false; f.spin=0;
       f.blink=0; f.blinkDur=0; f.blinkT=0; f.blinkHit=false; f.blinkReturn=false; f.returnX=0; f.returnY=0; f.teleported=false;
-      f.assistTime=0; f.assistShotTimer=0; f.burnTime=0; f.burnTick=1.0;
+      f.assistTime=0; f.assistShotTimer=0; f.assistIndex=0; f.burnTime=0; f.burnTick=1.0;
     }
 
-    ai.skill1Cd = level >= 30 ? rand(4.0, 7.0) : 9999;
+    ai.skill1Cd = level >= 30 ? rand(2.6, 4.2) : 9999;
     ai.skill2Cd = 9999;
+
+    bossWarnTimer = isBossLevel() ? 2.8 : 0;
 
     projectiles.length = 0;
     effects.length = 0;
     soldiers.length = 0;
     floatTexts.length = 0;
 
-    elStatus.textContent = isBossLevel() ? `보스전 ${bossTier()}!` : "진행중";
+    elStatus.textContent = isBossLevel() ? `⚠ 보스전 ${bossTier()}!` : "진행중";
     if (playerRegenEnabled) playerRegenTimer = 3.0;
     updateSkillLabels();
     updateHUD();
   }
 
+  function togglePause(){
+    if (!started || !running || classOverlay.style.display === "flex" || overlay.style.display === "flex") return;
+    paused = !paused;
+    pauseOverlay.style.display = paused ? "flex" : "none";
+    elStatus.textContent = paused ? "일시정지" : (isBossLevel() ? `보스전 ${bossTier()}!` : "진행중");
+  }
+
+  btnResume.onclick = () => {
+    paused = false;
+    pauseOverlay.style.display = "none";
+    elStatus.textContent = isBossLevel() ? `보스전 ${bossTier()}!` : "진행중";
+  };
+
   btnStart.onclick = () => {
     overlay.style.display = "none";
+    pauseOverlay.style.display = "none";
     started = true;
     running = true;
+    paused = false;
     pendingClassChoice = false;
     player.job = "swordsman";
     level = 1;
@@ -963,6 +1020,7 @@
       pendingClassChoice = false;
       level = nextLevelAfterChoice;
       running = true;
+      paused = false;
       resetRound();
     });
   });
@@ -1029,6 +1087,20 @@
     }
   }
 
+  function aiShouldEvadeProjectile(){
+    const intel = Math.min(1, 0.18 + 0.06*(level-1));
+    for (const p of projectiles){
+      if (p.owner !== player) continue;
+      const dx = ai.x + ai.w/2 - p.x;
+      const dy = Math.abs((ai.y + 40) - p.y);
+      const approaching = (p.vx > 0 && p.x < ai.x + ai.w/2) || (p.vx < 0 && p.x > ai.x + ai.w/2);
+      if (approaching && Math.abs(dx) < lerp(85, 180, intel) && dy < 70){
+        return true;
+      }
+    }
+    return false;
+  }
+
   function aiBrain(dt){
     const towardPlayer = ((player.x + player.w/2) - (ai.x + ai.w/2)) >= 0 ? 1 : -1;
     ai.facing = towardPlayer;
@@ -1040,42 +1112,50 @@
 
     const dx = (player.x + player.w/2) - (ai.x + ai.w/2);
     const adx = Math.abs(dx);
-    const speed = ai.baseSpeed * 0.88;
+    const speed = ai.baseSpeed * lerp(0.92, 1.18, Math.min(1, 0.16 + 0.05*(level-1)));
 
     const intel = Math.max(0.20, Math.min(1.0, 0.20 + 0.06*(level-1)));
-    const reaction = lerp(0.30, 0.07, intel);
-    const feintProb = lerp(0.04, 0.28, intel);
-    const punishProb = lerp(0.20, 0.92, intel);
-    const jumpAttackProb = lerp(0.02, 0.38, intel);
-    const jumpEvadeProb = lerp(0.02, 0.24, intel);
+    const reaction = lerp(0.28, 0.045, intel);
+    const feintProb = lerp(0.04, 0.36, intel);
+    const punishProb = lerp(0.22, 0.97, intel);
+    const jumpAttackProb = lerp(0.03, 0.48, intel);
+    const jumpEvadeProb = lerp(0.04, 0.42, intel);
+    const backstepProb = lerp(0.06, 0.55, intel);
 
-    const ideal = isBossLevel() ? lerp(175, 126, intel) : lerp(185, 140, intel);
-    const tooClose = 110;
+    const ideal = isBossLevel() ? lerp(172, 116, intel) : lerp(180, 126, intel);
+    const tooClose = lerp(112, 96, intel);
 
     const playerAttacking = (player.swing > 0 || player.whirl > 0 || player.blink > 0);
     const playerRecover = ((player.cooldown > 0 && player.swing <= 0) || player.whirl > 0 || player.blink > 0);
+    const incomingProjectile = aiShouldEvadeProjectile();
 
     ai.think -= dt;
     if (ai.think <= 0){
       ai.state = "space";
 
-      if (playerAttacking && Math.random() < jumpEvadeProb && ai.onGround){
+      if (incomingProjectile && Math.random() < Math.max(0.35, jumpEvadeProb)){
+        ai.state = ai.onGround && Math.random() < 0.55 ? "jump_evade" : "retreat";
+      } else if (playerAttacking && Math.random() < jumpEvadeProb && ai.onGround){
         ai.state = "jump_evade";
-      } else if (playerAttacking && Math.random() < 0.55){
+      } else if (playerAttacking && Math.random() < Math.max(backstepProb, 0.35)){
         ai.state = "retreat";
       }
 
-      if (playerRecover && adx < ideal + 20 && Math.random() < punishProb){
+      if (playerRecover && adx < ideal + 24 && Math.random() < punishProb){
         ai.state = "punish";
       }
 
       if (!playerAttacking && Math.random() < feintProb){
         ai.state = "feint";
-        ai.feintT = 0.28;
+        ai.feintT = 0.26;
       }
 
-      if (!playerAttacking && ai.onGround && adx < ideal + 10 && Math.random() < jumpAttackProb){
+      if (!playerAttacking && ai.onGround && adx < ideal + 14 && Math.random() < jumpAttackProb){
         ai.state = "jump_attack";
+      }
+
+      if (adx < tooClose && Math.random() < backstepProb){
+        ai.state = "retreat";
       }
 
       ai.think = reaction;
@@ -1083,22 +1163,22 @@
 
     let dir = 0;
     if (ai.state === "space"){
-      if (adx > ideal + 10) dir = towardPlayer;
+      if (adx > ideal + 8) dir = towardPlayer;
       else if (adx < tooClose) dir = -towardPlayer;
     } else if (ai.state === "retreat"){
       dir = -towardPlayer;
     } else if (ai.state === "punish"){
-      dir = (adx > HARD_MIN_GAP + 20) ? towardPlayer : 0;
+      dir = (adx > HARD_MIN_GAP + 16) ? towardPlayer : 0;
     } else if (ai.state === "feint"){
       ai.feintT -= dt;
-      dir = (ai.feintT > 0.14) ? towardPlayer : -towardPlayer;
+      dir = (ai.feintT > 0.12) ? towardPlayer : -towardPlayer;
       if (ai.feintT <= 0) ai.state = "space";
     } else if (ai.state === "jump_evade"){
       if (ai.onGround){
         ai.vy = -ai.jumpVel;
         ai.onGround = false;
       }
-      dir = -towardPlayer;
+      dir = incomingProjectile ? (Math.random() < 0.5 ? towardPlayer : -towardPlayer) : -towardPlayer;
     } else if (ai.state === "jump_attack"){
       if (ai.onGround){
         ai.vy = -ai.jumpVel;
@@ -1112,14 +1192,19 @@
 
     ai.vx = dir * speed;
 
-    if (level >= 30 && ai.skill1Cd <= 0 && adx > 110 && adx < 260 && Math.random() < 0.012){
-      trySkill1(ai);
-      return;
+    if (level >= 30 && ai.skill1Cd <= 0){
+      const goodSkillRange = adx > 100 && adx < 235;
+      const playerCommitted = player.cooldown > 0 || player.swing > 0 || player.whirl > 0 || player.blink > 0;
+      if (goodSkillRange && (playerCommitted || Math.random() < lerp(0.02,0.09,intel))){
+        trySkill1(ai);
+        return;
+      }
     }
 
-    if (adx < ideal + 10 && ai.cooldown <= 0 && ai.swing <= 0){
-      let p = lerp(0.18, 0.60, intel);
-      if (ai.state === "punish") p = lerp(0.40, 0.90, intel);
+    if (adx < ideal + 8 && ai.cooldown <= 0 && ai.swing <= 0){
+      let p = lerp(0.22, 0.72, intel);
+      if (ai.state === "punish") p = lerp(0.48, 0.96, intel);
+      if (incomingProjectile) p *= 0.55;
       if (Math.random() < p) tryBasicAttack(ai);
     }
 
@@ -1373,12 +1458,12 @@
 
     if (f.kind === "ai"){
       ctx.fillStyle = hit ? "#ef4444" : (isBossLevel() ? "#f97316" : "#fb7185");
-      roundRect(f.x+8, f.y+30, f.w-16, f.h-30, 14); ctx.fill();
+      roundRect(f.x+9, f.y+30, f.w-18, f.h-30, 14); ctx.fill();
       ctx.fillStyle = hit ? "#ef4444" : "#cbd5e1";
-      roundRect(f.x+14, f.y+2, f.w-28, 26, 8); ctx.fill();
+      roundRect(f.x+13, f.y+2, f.w-26, 24, 8); ctx.fill();
       ctx.fillStyle = "#0b0f14";
-      ctx.fillRect(f.x+20, f.y+12, 10, 5);
-      ctx.fillRect(f.x+f.w-30, f.y+12, 10, 5);
+      ctx.fillRect(f.x+16, f.y+10, 8, 5);
+      ctx.fillRect(f.x+f.w-24, f.y+10, 8, 5);
       if (f.bossCrown){
         ctx.strokeStyle = "#f59e0b";
         ctx.lineWidth = 3;
@@ -1392,9 +1477,9 @@
       if (f.job === "robot") bodyColor = "#22d3ee";
       if (f.job === "mage") bodyColor = "#a78bfa";
       ctx.fillStyle = hit ? "#2563eb" : bodyColor;
-      roundRect(f.x+12, f.y+28, f.w-24, f.h-28, 14); ctx.fill();
+      roundRect(f.x+10, f.y+28, f.w-20, f.h-28, 14); ctx.fill();
       ctx.fillStyle = hit ? "#2563eb" : "#cbd5e1";
-      ctx.beginPath(); ctx.arc(headX, headY, 11, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(headX, headY, 10, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = "#0b0f14";
       ctx.beginPath(); ctx.arc(headX + dir*4, headY, 2.2, 0, Math.PI*2); ctx.fill();
     }
@@ -1409,8 +1494,8 @@
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    const shoulderL = {x: chestX - 10, y: chestY - 8};
-    const shoulderR = {x: chestX + 10, y: chestY - 8};
+    const shoulderL = {x: chestX - 8, y: chestY - 8};
+    const shoulderR = {x: chestX + 8, y: chestY - 8};
 
     let armA = f.onGround ? walk : (dir*10);
     let armB = f.onGround ? walk2 : (-dir*8);
@@ -1422,28 +1507,28 @@
       legA = 8; legB = -6;
     }
 
-    const elbowL = {x: shoulderL.x - 9 + armA*0.2, y: shoulderL.y + 12 + Math.abs(armA)*0.12};
+    const elbowL = {x: shoulderL.x - 8 + armA*0.2, y: shoulderL.y + 12 + Math.abs(armA)*0.12};
     const handL  = {x: elbowL.x - 7, y: elbowL.y + 12};
-    const elbowR = {x: shoulderR.x + 9 + armB*0.2, y: shoulderR.y + 12 + Math.abs(armB)*0.12};
+    const elbowR = {x: shoulderR.x + 8 + armB*0.2, y: shoulderR.y + 12 + Math.abs(armB)*0.12};
     const handR  = {x: elbowR.x + 7, y: elbowR.y + 12};
 
     ctx.beginPath(); ctx.moveTo(shoulderL.x, shoulderL.y); ctx.lineTo(elbowL.x, elbowL.y); ctx.lineTo(handL.x, handL.y); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(shoulderR.x, shoulderR.y); ctx.lineTo(elbowR.x, elbowR.y); ctx.lineTo(handR.x, handR.y); ctx.stroke();
 
-    let kneeL = {x: hipX - 8 + legA*0.25, y: hipY + 14};
+    let kneeL = {x: hipX - 6 + legA*0.25, y: hipY + 14};
     let footL = {x: kneeL.x - 5, y: kneeL.y + 18};
-    let kneeR = {x: hipX + 8 + legB*0.25, y: hipY + 14};
+    let kneeR = {x: hipX + 6 + legB*0.25, y: hipY + 14};
     let footR = {x: kneeR.x + 5, y: kneeR.y + 18};
 
     if (!f.onGround){
-      kneeL = {x: hipX - 5, y: hipY + 10};
+      kneeL = {x: hipX - 4, y: hipY + 10};
       footL = {x: hipX + 8, y: hipY + 18};
-      kneeR = {x: hipX + 5, y: hipY + 10};
+      kneeR = {x: hipX + 4, y: hipY + 10};
       footR = {x: hipX - 8, y: hipY + 20};
     }
 
-    ctx.beginPath(); ctx.moveTo(hipX-5, hipY); ctx.lineTo(kneeL.x, kneeL.y); ctx.lineTo(footL.x, footL.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(hipX+5, hipY); ctx.lineTo(kneeR.x, kneeR.y); ctx.lineTo(footR.x, footR.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hipX-4, hipY); ctx.lineTo(kneeL.x, kneeL.y); ctx.lineTo(footL.x, footL.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hipX+4, hipY); ctx.lineTo(kneeR.x, kneeR.y); ctx.lineTo(footR.x, footR.y); ctx.stroke();
 
     drawWeapon(f);
     drawSpecialAura(f);
@@ -1653,12 +1738,12 @@
       const sx = player.x - s.backOffset;
       const sy = player.y + 10 + s.sideOffset*0.2;
       ctx.fillStyle = "#64748b";
-      roundRect(sx, sy, 26, 42, 8); ctx.fill();
+      roundRect(sx, sy, 22, 40, 8); ctx.fill();
       ctx.fillStyle = "#cbd5e1";
-      ctx.beginPath(); ctx.arc(sx+13, sy-2, 8, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx+11, sy-2, 7, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = "#fde68a";
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(sx+22, sy+12, 8, -Math.PI/2, Math.PI/2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(sx+18, sy+12, 7, -Math.PI/2, Math.PI/2); ctx.stroke();
     }
   }
 
@@ -1674,6 +1759,38 @@
     }
   }
 
+  function drawBossWarning(){
+    if (bossWarnTimer <= 0) return;
+    const alpha = clamp(bossWarnTimer / 2.8, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, 0.35 + alpha*0.65);
+    ctx.fillStyle = "rgba(239,68,68,0.14)";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.globalAlpha = Math.min(1, 0.5 + alpha*0.5);
+    ctx.fillStyle = "#ef4444";
+    roundRect(W/2 - 210, 42, 420, 62, 16); ctx.fill();
+
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#fecaca";
+    ctx.lineWidth = 3;
+    roundRect(W/2 - 210, 42, 420, 62, 16); ctx.stroke();
+
+    ctx.fillStyle = "#fff7ed";
+    ctx.font = "900 30px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("⚠ BOSS WARNING ⚠", W/2, 82);
+    ctx.restore();
+  }
+
+  function drawPauseTint(){
+    if (!paused) return;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
   function drawUIOverlay(){
     ctx.fillStyle = "#cbd5e1";
     ctx.font = "14px system-ui, sans-serif";
@@ -1681,7 +1798,9 @@
     const stormTxt = stormActive ? ` | 별폭풍 남은별:${stormStarsLeft}` : "";
     const rewardTxt = playerRegenEnabled ? " | 보상활성:공격+5%,재생+5" : "";
     const bossTxt = isBossLevel() ? ` | 보스HP:${ai.maxHp}` : "";
-    ctx.fillText(`AI 지능:${aiIntelMult().toFixed(2)}x | AI 데미지:${aiDamageMult().toFixed(2)}x | 직업:${JOBS[player.job].name}${bossTxt}${stormTxt}${rewardTxt}`, 18, 26);
+    const pauseTxt = paused ? " | PAUSED" : "";
+    const penaltyTxt = (level >= 10 && player.job !== "swordsman") ? ` | 새직업 페널티:-5` : "";
+    ctx.fillText(`AI 지능:${aiIntelMult().toFixed(2)}x | AI 데미지:+5${level>=10 ? "·10%" : ""}${bossTxt}${stormTxt}${rewardTxt}${penaltyTxt}${pauseTxt}`, 18, 26);
   }
 
   function finishBossWin(){
@@ -1695,8 +1814,28 @@
     classOverlay.style.display = "flex";
   }
 
+  function handleNormalWin(){
+    if (shouldChooseClassAfterLevel(level)){
+      nextLevelAfterChoice = level + 1;
+      pendingClassChoice = true;
+      running = false;
+      classOverlay.style.display = "flex";
+      elStatus.textContent = "직업 변경 가능!";
+      return;
+    }
+
+    running = false;
+    elStatus.textContent = "승리!";
+    setTimeout(() => {
+      if (pendingClassChoice || paused || !started) return;
+      level += 1;
+      running = true;
+      resetRound();
+    }, 800);
+  }
+
   function tick(dt){
-    if (!started || !running) return;
+    if (!started || !running || paused) return;
 
     if (hitStop > 0){
       hitStop = Math.max(0, hitStop - dt);
@@ -1704,6 +1843,8 @@
     }
 
     timeLeft = Math.max(0, timeLeft - dt);
+    bossWarnTimer = Math.max(0, bossWarnTimer - dt);
+
     if (timeLeft <= 0){
       running = false;
       elStatus.textContent = "시간 종료";
@@ -1736,16 +1877,12 @@
         elStatus.textContent = `보스 ${bossTier()} 격파!`;
         finishBossWin();
       } else {
-        running = false;
-        elStatus.textContent = "승리!";
-        setTimeout(() => {
-          level += 1;
-          running = true;
-          resetRound();
-        }, 800);
+        handleNormalWin();
       }
     } else if (player.hp <= 0){
       running = false;
+      paused = false;
+      pauseOverlay.style.display = "none";
       elStatus.textContent = "패배!";
       overlay.style.display = "flex";
       btnStart.textContent = "Restart";
@@ -1774,6 +1911,8 @@
       drawProjectiles();
       drawEffects();
       drawDamageTexts();
+      drawBossWarning();
+      drawPauseTint();
       drawUIOverlay();
 
       requestAnimationFrame(loop);
